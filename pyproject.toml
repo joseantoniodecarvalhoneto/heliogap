@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spacegap"
+version = "0.1.0"
+authors = [
+{ name="José Antonio de Carvalho Neto", email="joseadecn@gmail.com" },
+]
+description = "Biblioteca de Geofísica Espacial para análise de lacunas (gaps) no vento solar."
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+  "numpy",
+  "pandas",
+  "matplotlib",
+  "pyspedas",
+  "cdflib"
+]
+
+[project.urls]
+Homepage = "https://github.com/joseantoniodecarvalhoneto/heliogap"
