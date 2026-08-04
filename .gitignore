@@ -19,7 +19,8 @@ env/
 
 examples/
 Omni_Charts/
+Omni_EMBRACE/
 embrace_results/
 omni_data/
-teste.py
-teste.ipynb
+tests/
+.vscode/

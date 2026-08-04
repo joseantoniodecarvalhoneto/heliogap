@@ -105,7 +105,6 @@ def run_exhaustive_analysis(df, feature_name, metric_name, gap_sizes=[1, 2, 5, 1
 
                     total_points_tested += y_true.size
 
-        # Limpeza agressiva da RAM ao concluir cada gap
         gc.collect()
 
         final_result = 0.0
