@@ -1,68 +1,90 @@
 import numpy as np
 
-def calculate_wmape(true_values, interpolated_values):
+def calculate_wmape(y_true, y_pred):
     """
-    Calcula o Erro Percentual Absoluto Ponderado (WMAPE).
-    Excelente para variáveis que cruzam o zero, como o campo magnético (Bz).
-    """
-    # Soma dos erros absolutos entre o real e a matemática
-    error_sum = np.sum(np.abs(true_values - interpolated_values))
-    # Soma absoluta do sinal original para ser o denominador
-    signal_sum = np.sum(np.abs(true_values))
+    Calculate the Weighted Mean Absolute Percentage Error (WMAPE).
     
-    # Previne a divisão por zero caso a soma do sinal seja zero
+    Parameters:
+        y_true (np.ndarray): Array of true values.
+        y_pred (np.ndarray): Array of predicted/interpolated values.
+        
+    Returns:
+        float: The WMAPE score as a percentage.
+    """
+    error_sum = np.sum(np.abs(y_true - y_pred))
+    signal_sum = np.sum(np.abs(y_true))
+    
     if signal_sum > 0:
         return (error_sum / signal_sum) * 100
-    return 0
+    return 0.0
 
-def calculate_mae(true_values, interpolated_values):
+def calculate_mae(y_true, y_pred):
     """
-    Calcula o Erro Absoluto Médio (MAE).
-    Devolve o erro nas unidades físicas originais (ex: km/s ou nT).
+    Calculate the Mean Absolute Error (MAE).
+    
+    Parameters:
+        y_true (np.ndarray): Array of true values.
+        y_pred (np.ndarray): Array of predicted/interpolated values.
+        
+    Returns:
+        float: The MAE score.
     """
-    return np.mean(np.abs(true_values - interpolated_values))
+    return np.mean(np.abs(y_true - y_pred))
 
-def calculate_rmse(true_values, interpolated_values):
+def calculate_rmse(y_true, y_pred):
     """
-    Calcula a Raiz do Erro Quadrático Médio (RMSE).
-    Pune severamente os erros nos picos das tempestades solares.
+    Calculate the Root Mean Squared Error (RMSE).
+    
+    Parameters:
+        y_true (np.ndarray): Array of true values.
+        y_pred (np.ndarray): Array of predicted/interpolated values.
+        
+    Returns:
+        float: The RMSE score.
     """
-    return np.sqrt(np.mean((true_values - interpolated_values)**2))
+    return np.sqrt(np.mean((y_true - y_pred)**2))
 
-def calculate_r2(true_values, interpolated_values, global_mean):
+def calculate_r2(y_true, y_pred, global_mean):
     """
-    Calcula o Coeficiente de Determinação (R²).
-    Se for negativo, a interpolação foi pior que usar simplesmente a média.
+    Calculate the Coefficient of Determination (R-squared).
+    
+    Parameters:
+        y_true (np.ndarray): Array of true values.
+        y_pred (np.ndarray): Array of predicted/interpolated values.
+        global_mean (float): The mean of the entire true dataset.
+        
+    Returns:
+        float: The R-squared score.
     """
-    # Soma dos quadrados dos resíduos (erros)
-    ss_res = np.sum((true_values - interpolated_values)**2)
-    # Soma total dos quadrados (variância real)
-    ss_tot = np.sum((true_values - global_mean)**2)
+    ss_res = np.sum((y_true - y_pred)**2)
+    ss_tot = np.sum((y_true - global_mean)**2)
     
     if ss_tot > 0:
         return 1 - (ss_res / ss_tot)
-    return 0
+    return 0.0
 
-def calculate_mda(true_values_current, true_values_previous, interpolation_dir):
+def calculate_mda(y_true_current, y_true_previous, pred_direction):
     """
-    Calcula a Precisão Direcional Média (MDA).
-    Verifica se a reta adivinhou a direção correta da subida/descida.
-    """
-    # Extrai o sinal (+1 ou -1) da diferença entre o ponto atual e o anterior
-    real_direction = np.sign(true_values_current - true_values_previous)
+    Calculate the Mean Directional Accuracy (MDA).
     
-    # Conta quantos acertos de direção ocorreram
-    correct_directions = np.sum(real_direction == interpolation_dir)
-    total_points = len(true_values_current)
+    Parameters:
+        y_true_current (np.ndarray): Array of true current values.
+        y_true_previous (np.ndarray): Array of true previous values.
+        pred_direction (int or np.ndarray): Predicted direction sign(s).
+        
+    Returns:
+        float: The MDA score as a percentage.
+    """
+    true_direction = np.sign(y_true_current - y_true_previous)
+    correct_directions = np.sum(true_direction == pred_direction)
+    total_points = len(y_true_current)
     
     if total_points > 0:
         return (correct_directions / total_points) * 100
-    return 0
+    return 0.0
 
-# Dicionário de mapeamento para facilitar a chamada das funções por nome no Motor Principal
-METRICS_MAP = {
+METRIC_FUNCTIONS = {
     'wmape': calculate_wmape,
     'mae': calculate_mae,
-    'rmse': calculate_rmse,
-    # R2 e MDA requerem parâmetros especiais, lidaremos com eles no motor
+    'rmse': calculate_rmse
 }

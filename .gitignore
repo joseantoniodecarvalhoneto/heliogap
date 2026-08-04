@@ -8,7 +8,18 @@ dist/
 *.pkl
 *.cdf
 *.csv
+*.png
+*.ipynb
 
 .env
 venv/
 env/
+.vscode/
+.pytest_cache/
+
+examples/
+Omni_Charts/
+embrace_results/
+omni_data/
+teste.py
+teste.ipynb
