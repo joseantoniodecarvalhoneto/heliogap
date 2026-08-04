@@ -23,4 +23,5 @@ Omni_EMBRACE/
 embrace_results/
 omni_data/
 tests/
+.tests/
 .vscode/
