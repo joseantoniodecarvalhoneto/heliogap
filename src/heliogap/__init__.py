@@ -9,7 +9,11 @@ from .metrics import (
     calculate_r2,
     calculate_mda
 )
-from .engine import run_exhaustive_analysis
+from .engine import (
+    run_exhaustive_analysis,
+    downcast_dataframe,
+    extract_continuous_segments
+)
 from .omni import load_omni_data, clean_nasa_fill_values
 from .plotter import plot_metric_matrix
 from .embrace import (
@@ -26,6 +30,8 @@ __all__ = [
     "calculate_r2",
     "calculate_mda",
     "run_exhaustive_analysis",
+    "downcast_dataframe",
+    "extract_continuous_segments",
     "load_omni_data",
     "clean_nasa_fill_values",
     "plot_metric_matrix",
