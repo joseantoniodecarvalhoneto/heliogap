@@ -1,27 +1,106 @@
+# ==============================================================================
+# Heliogap - Python Package .gitignore
+# ==============================================================================
+
+# Byte-compiled / optimized files
 __pycache__/
 *.py[cod]
-*~
-*.egg-info/
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / Packaging
 build/
+develop-eggs/
 dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-*.pkl
-*.cdf
-*.csv
-*.png
-*.ipynb
-
-.env
+# Virtual Environments
 venv/
+.venv/
 env/
-.vscode/
-.pytest_cache/
+ENV/
+env.bak/
+venv.bak/
 
-examples/
-Omni_Charts/
-Omni_EMBRACE/
-embrace_results/
-omni_data/
-tests/
-.tests/
+# IDEs & Editors
 .vscode/
+.idea/
+*.swp
+*.swo
+*~
+.directory
+.DS_Store
+Thumbs.db
+
+# Testing & Linting
+.pytest_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+nosetests.xml
+coverage.xml
+htmlcov/
+.hypothesis/
+.ruff_cache/
+.mypy_cache/
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+*.ipynb
+teste.ipynb
+teste.py
+
+# Environment variables
+.env
+.env.*
+
+# ------------------------------------------------------------------------------
+# Heavy Scientific Datasets, Caches and Output Artifacts (Do NOT commit to git)
+# ------------------------------------------------------------------------------
+# Data files & cache serializations
+*.pkl
+*.pickle
+*.cdf
+*.h5
+*.hdf5
+*.feather
+*.parquet
+*.csv
+
+# Specific dataset directories & caches
+omni_data/
+omni_data.pkl
+*cache.pkl
+*_hist.pkl
+
+# Execution outputs, charts & benchmark results
+hpc_results/
+embrace_results/
+Omni_Charts/
+Embrace_Charts/
+omni/
+*.png
+*.jpg
+*.jpeg
+*.svg
+*.pdf
+*.log
+cpu_benchmark_log.txt
+execution_results_log.txt
+
+# Local orchestrator scripts
+Orchestrator.py

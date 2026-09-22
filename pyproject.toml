@@ -1,23 +1,70 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "heliogap"
-version = "0.1.0"
+version = "0.2.0"
+description = "Space geophysics and heliophysics library for time-series gap analysis and interpolation benchmarking."
+readme = "Readme.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
 authors = [
-{ name="José Antonio de Carvalho Neto", email="joseadecn@gmail.com" },
+    { name = "José Antonio de Carvalho Neto", email = "joseadecn@gmail.com" },
 ]
-description = "Biblioteca de Geofísica Espacial para análise de lacunas (gaps) no vento solar."
-readme = "README.md"
-requires-python = ">=3.8"
+keywords = [
+    "heliophysics",
+    "space-weather",
+    "solar-wind",
+    "geomagnetism",
+    "interpolation",
+    "gap-analysis",
+    "omni",
+    "embrace",
+    "intermagnet",
+    "time-series"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
 dependencies = [
-  "numpy",
-  "pandas",
-  "matplotlib",
-  "pyspedas",
-  "cdflib"
+    "numpy>=1.20.0",
+    "pandas>=1.3.0",
+    "scipy>=1.7.0",
+    "matplotlib>=3.4.0",
+    "pyspedas>=1.4.0",
+    "cdflib>=1.0.0",
+    "requests>=2.25.0",
+    "urllib3>=1.26.0",
+    "joblib>=1.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "psutil>=5.8.0",
 ]
 
 [project.urls]
 Homepage = "https://github.com/joseantoniodecarvalhoneto/heliogap"
+Repository = "https://github.com/joseantoniodecarvalhoneto/heliogap"
+"Bug Tracker" = "https://github.com/joseantoniodecarvalhoneto/heliogap/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
