@@ -1,14 +1,11 @@
 """
-Heliogap Mathematical Engine - High-Performance Computing (HPC) Module.
+Heliogap Mathematical Engine - Gap Simulation and Benchmarking Module.
 
-Optimized for multi-million-row space weather time series (NASA OMNI, INPE EMBRACE).
-Features:
-- GIL-bypassing multi-core processing with Joblib (loky backend + memory mapping)
-- Fast vectorized run-length segment extraction (20x faster than Pandas groupby, 0 copy)
-- RAM-aware dynamic chunk sizing based on live available memory per worker
-- Aggressive memory protocol: float32 downcasting, in-place mutations, explicit GC
+Provides memory-efficient, high-performance gap interpolation evaluation
+for space weather and geomagnetic time series (NASA OMNI, INPE EMBRACE, INTERMAGNET).
 """
 
+from typing import Union, List, Tuple, Optional
 import os
 import time
 import gc
@@ -27,7 +24,7 @@ except ImportError:
 def downcast_dataframe(df: pd.DataFrame, inplace: bool = True) -> pd.DataFrame:
     """
     Downcast numeric columns in a DataFrame (float64 -> float32, int64 -> int32)
-    to halve the memory footprint before entering vectorized math functions.
+    to reduce memory footprint prior to vectorized numerical evaluation.
 
     Parameters:
         df (pd.DataFrame): Target DataFrame.
@@ -51,12 +48,15 @@ def downcast_dataframe(df: pd.DataFrame, inplace: bool = True) -> pd.DataFrame:
     return target_df
 
 
-def extract_continuous_segments(data, feature_name: str = None, min_length: int = 3) -> list[np.ndarray]:
+def extract_continuous_segments(
+    data: Union[pd.DataFrame, pd.Series, np.ndarray],
+    feature_name: Optional[str] = None,
+    min_length: int = 3
+) -> List[np.ndarray]:
     """
-    Ultra-fast vectorized extraction of continuous non-NaN slices using pure
-    NumPy run-length transition detection.
+    Extract continuous non-NaN slices using fast NumPy run-length transition detection.
 
-    Bypasses Pandas GroupBy entirely for a ~20x speedup and zero-copy memory views.
+    Avoids DataFrame groupby operations for efficient zero-copy array views.
 
     Parameters:
         data (pd.DataFrame | pd.Series | np.ndarray): Input series or dataset.
@@ -64,7 +64,7 @@ def extract_continuous_segments(data, feature_name: str = None, min_length: int 
         min_length (int): Minimum continuous points required to evaluate gaps.
 
     Returns:
-        list[np.ndarray]: Contiguous 1D float32 NumPy array segments.
+        List[np.ndarray]: Contiguous 1D float32 NumPy array segments.
     """
     if isinstance(data, pd.DataFrame):
         if feature_name is None:
@@ -81,70 +81,61 @@ def extract_continuous_segments(data, feature_name: str = None, min_length: int 
     if not np.any(valid_mask):
         return []
 
-    # Vectorized run-length transition detection via padded diff
+    # Run-length transition detection via padded difference
     diff = np.diff(np.concatenate(([False], valid_mask, [False])).astype(np.int8))
     starts = np.where(diff == 1)[0]
     ends = np.where(diff == -1)[0]
 
-    # Zero-copy slicing into base array
-    segments = [arr[s:e] for s, e in zip(starts, ends) if (e - s) >= min_length]
-    return segments
+    return [arr[s:e] for s, e in zip(starts, ends) if (e - s) >= min_length]
 
 
 def get_optimal_chunk_size(window_size: int, n_workers: int = 1, dtype=np.float32) -> int:
     """
-    Dynamically computes safe sliding window chunk size based on real-time
-    available RAM partitioned across concurrent worker processes.
+    Compute safe sliding-window chunk size based on available system memory
+    divided among active worker processes.
 
     Parameters:
-        window_size (int): Total window width (gap + boundary contexts).
-        n_workers (int): Number of active parallel worker processes.
+        window_size (int): Total window width (gap size + boundary contexts).
+        n_workers (int): Number of parallel worker processes.
         dtype: Data type (default: np.float32).
 
     Returns:
-        int: Maximum number of sliding windows per chunk.
+        int: Maximum number of sliding windows per batch chunk.
     """
     if not HAS_PSUTIL:
         return 200_000
 
-    # Read available physical memory in bytes
     ram_available = psutil.virtual_memory().available
-
     effective_workers = max(1, n_workers if n_workers > 0 else (os.cpu_count() or 1))
-    
-    # Target safety envelope: 35% of free RAM divided across all workers
-    target_ram_per_worker = (ram_available * 0.35) / effective_workers
 
-    # Estimated memory expansion factor for SciPy internal evaluation matrices
+    # Allocate a fraction of available memory safely per worker
+    target_ram_per_worker = (ram_available * 0.35) / effective_workers
     bytes_per_scenario = window_size * np.dtype(dtype).itemsize * 10
 
     chunk = int(target_ram_per_worker / max(1, bytes_per_scenario))
-
-    # Clamp chunk size between 50k and 3M windows
     return max(50_000, min(chunk, 3_000_000))
 
 
 def _evaluate_single_gap(
-    segments: list[np.ndarray],
+    segments: List[np.ndarray],
     k: int,
     interpolation_method: str,
     metric_name: str,
     global_mean: float = 0.0,
-    order: int = None,
+    order: Optional[int] = None,
     chunk_size: int = 200_000
-) -> tuple[int, float, int, float]:
+) -> Tuple[int, float, int, float]:
     """
-    Standalone, picklable HPC worker unit that evaluates one gap scenario k
-    across all continuous data segments.
+    Worker unit that evaluates gap size k across continuous data segments.
 
     Parameters:
         segments (list[np.ndarray]): List of continuous 1D float32 segments.
-        k (int): Gap size in minutes.
-        interpolation_method (str): Name of interpolation method.
-        metric_name (str): Evaluation metric ('wmape', 'mae', 'rmse', 'r2', 'mda').
-        global_mean (float): Baseline mean for R2 calculation.
-        order (int, optional): Order for polynomial interpolation.
-        chunk_size (int): Chunk size for SciPy sliding windows.
+        k (int): Gap size (sampling points).
+        interpolation_method (str): Interpolation method identifier.
+        metric_name (str): Metric name ('wmape', 'mae', 'rmse', 'r2', 'mda').
+        global_mean (float): Baseline mean for R2 metric.
+        order (int, optional): Polynomial order if applicable.
+        chunk_size (int): Maximum sliding windows evaluated per chunk.
 
     Returns:
         tuple[int, float, int, float]: (k, metric_result, total_points_tested, elapsed_seconds)
@@ -157,7 +148,7 @@ def _evaluate_single_gap(
     method_lower = interpolation_method.lower()
 
     # --------------------------------------------------------------------------
-    # 1. ULTRA-FAST PURE NUMPY PATH (Linear, Nearest, Zero)
+    # 1. Vectorized NumPy evaluation for basic methods (linear, nearest, zero)
     # --------------------------------------------------------------------------
     if method_lower in ['linear', 'nearest', 'zero']:
         for seg in segments:
@@ -184,10 +175,10 @@ def _evaluate_single_gap(
                     elif metric_lower == 'mae':
                         accumulated_error += float(np.sum(np.abs(y_true - y_pred)))
                     elif metric_lower == 'rmse':
-                        accumulated_error += float(np.sum((y_true - y_pred)**2))
+                        accumulated_error += float(np.sum((y_true - y_pred) ** 2))
                     elif metric_lower == 'r2':
-                        accumulated_error += float(np.sum((y_true - y_pred)**2))
-                        accumulated_signal += float(np.sum((y_true - global_mean)**2))
+                        accumulated_error += float(np.sum((y_true - y_pred) ** 2))
+                        accumulated_signal += float(np.sum((y_true - global_mean) ** 2))
                     elif metric_lower == 'mda':
                         y_true_prev = seg[step - 1 : step - 1 + len(y_left)]
                         real_direction = np.sign(y_true - y_true_prev)
@@ -196,20 +187,22 @@ def _evaluate_single_gap(
                     total_points_tested += len(y_true)
 
     # --------------------------------------------------------------------------
-    # 2. SCIPY DIRECT BYPASS (Cubic, PCHIP, Akima, Slinear, Quadratic, Poly)
+    # 2. SciPy sliding-window interpolation (spline, cubic, pchip, akima, etc.)
     # --------------------------------------------------------------------------
     else:
-        # Context anchors: 3 points before and 3 points after the gap
-        C = 3
-        window_size = k + 2 * C
+        context_pts = 3
+        window_size = k + 2 * context_pts
 
         for seg in segments:
             n_points = len(seg)
             if n_points >= window_size:
                 num_windows = n_points - window_size + 1
                 x_all = np.arange(window_size, dtype=np.float32)
-                known_indices = np.concatenate([np.arange(C), np.arange(C + k, window_size)])
-                target_indices = np.arange(C, C + k)
+                known_indices = np.concatenate([
+                    np.arange(context_pts),
+                    np.arange(context_pts + k, window_size)
+                ])
+                target_indices = np.arange(context_pts, context_pts + k)
 
                 x_known = x_all[known_indices]
                 x_target = x_all[target_indices]
@@ -248,31 +241,28 @@ def _evaluate_single_gap(
                     except Exception:
                         continue
 
-                    # Metric Accumulations
                     if metric_lower == 'wmape':
                         accumulated_error += float(np.sum(np.abs(y_true - y_pred)))
                         accumulated_signal += float(np.sum(np.abs(y_true)))
                     elif metric_lower == 'mae':
                         accumulated_error += float(np.sum(np.abs(y_true - y_pred)))
                     elif metric_lower == 'rmse':
-                        accumulated_error += float(np.sum((y_true - y_pred)**2))
+                        accumulated_error += float(np.sum((y_true - y_pred) ** 2))
                     elif metric_lower == 'r2':
-                        accumulated_error += float(np.sum((y_true - y_pred)**2))
-                        accumulated_signal += float(np.sum((y_true - global_mean)**2))
+                        accumulated_error += float(np.sum((y_true - y_pred) ** 2))
+                        accumulated_signal += float(np.sum((y_true - global_mean) ** 2))
                     elif metric_lower == 'mda':
                         y_true_prev = chunk_windows[:, target_indices - 1]
                         true_direction = np.sign(y_true - y_true_prev)
-                        y_pred_with_anchor = np.column_stack([chunk_windows[:, C - 1], y_pred])
+                        y_pred_with_anchor = np.column_stack([chunk_windows[:, context_pts - 1], y_pred])
                         pred_direction = np.sign(y_pred_with_anchor[:, 1:] - y_pred_with_anchor[:, :-1])
                         accumulated_error += float(np.sum(true_direction == pred_direction))
 
                     total_points_tested += y_true.size
-
-                    # Explicit deallocation of temporary chunk matrices
                     del chunk_windows, y_known, y_true
 
     # --------------------------------------------------------------------------
-    # 3. FINAL METRIC COMPUTATION
+    # 3. Final metric aggregation
     # --------------------------------------------------------------------------
     final_result = 0.0
     if total_points_tested > 0:
@@ -291,48 +281,49 @@ def _evaluate_single_gap(
     return (k, float(final_result), total_points_tested, elapsed_time)
 
 
-def run_exhaustive_analysis(
-    df,
-    feature_name: str = None,
+def evaluate_gaps(
+    df: Union[pd.DataFrame, pd.Series, np.ndarray],
+    feature_name: Optional[str] = None,
     metric_name: str = 'wmape',
-    gap_sizes: list[int] = [1, 2, 5, 10, 15, 30, 60, 120],
+    gap_sizes: Optional[List[int]] = None,
     interpolation_method: str = 'linear',
-    order: int = None,
+    order: Optional[int] = None,
     n_jobs: int = -1,
     verbose: bool = True
-) -> tuple[list[int], list[float]]:
+) -> Tuple[List[int], List[float]]:
     """
-    Parallelized, GIL-bypassing mathematical engine for exhaustive gap analysis.
+    Simulate and evaluate data gaps across time-series datasets.
 
-    Distributes computation of gap scenarios across all available CPU cores
-    using memory-mapped Joblib multiprocessing with strict RAM protections.
+    Supports single-core sequential execution (n_jobs=1) and multi-core
+    parallel processing via Joblib (n_jobs=-1 or specific worker count).
 
     Parameters:
         df (pd.DataFrame | pd.Series | np.ndarray): Input dataset.
-        feature_name (str, optional): Target column if df is a DataFrame.
-        metric_name (str): Metric ('wmape', 'mae', 'rmse', 'r2', 'mda').
-        gap_sizes (list[int]): List of simulated gap dimensions in minutes.
-        interpolation_method (str): Interpolator identifier.
-        order (int, optional): Polynomial order if applicable.
-        n_jobs (int): Number of CPU workers (-1 uses all available cores).
-        verbose (bool): Whether to log real-time progress.
+        feature_name (str, optional): Target column name if df is a DataFrame.
+        metric_name (str): Evaluation metric ('wmape', 'mae', 'rmse', 'r2', 'mda').
+        gap_sizes (list[int], optional): Gap dimensions in sampling steps (default: [1, 2, 5, 10, 15, 30, 60, 120]).
+        interpolation_method (str): Interpolation method ('linear', 'nearest', 'zero', 'cubic', 'pchip', 'akima', etc.).
+        order (int, optional): Polynomial order for interpolation if applicable.
+        n_jobs (int): CPU workers (1 = sequential, -1 = all cores).
+        verbose (bool): Whether to print progress log to stdout.
 
     Returns:
-        tuple[list[int], list[float]]: (gap_sizes, calculated_metrics)
+        tuple[list[int], list[float]]: (gap_sizes, metric_results)
     """
-    feat_display = feature_name if feature_name else 'Feature'
-    
-    # Extract continuous historical segments using pure NumPy (zero Pandas overhead)
+    if gap_sizes is None:
+        gap_sizes = [1, 2, 5, 10, 15, 30, 60, 120]
+
+    feature_label = feature_name if feature_name else 'Feature'
     segments = extract_continuous_segments(df, feature_name=feature_name)
-    
+
     if verbose:
-        print(f"\n{'='*60}\nAnalyzing: {feat_display} | Metric: {metric_name.upper()} | Method: {interpolation_method.capitalize()}\n{'='*60}")
-        print(f"Extracted {len(segments):,} pure continuous historical blocks.")
+        print(f"\n{'=' * 60}\nEvaluating: {feature_label} | Metric: {metric_name.upper()} | Method: {interpolation_method.capitalize()}\n{'=' * 60}")
+        print(f"Extracted {len(segments):,} continuous data segments.")
 
     if not segments or not gap_sizes:
         return gap_sizes, [0.0] * len(gap_sizes)
 
-    # Compute global mean for R2 metric
+    # Compute global mean if R2 metric is requested
     global_mean = 0.0
     if metric_name.lower() == 'r2':
         if isinstance(df, pd.DataFrame) and feature_name:
@@ -343,14 +334,13 @@ def run_exhaustive_analysis(
             all_pts = np.concatenate(segments)
             global_mean = float(np.mean(all_pts))
 
-    # Determine CPU workers and dynamic chunk sizes
     num_cpus = os.cpu_count() or 1
     effective_workers = num_cpus if n_jobs == -1 else max(1, min(n_jobs, num_cpus))
     max_k = max(gap_sizes) if gap_sizes else 120
     chunk_size = get_optimal_chunk_size(max_k + 6, n_workers=effective_workers, dtype=np.float32)
 
-    # Execute gap evaluations (Parallel multi-core vs Sequential fallback)
-    if effective_workers == 1 or len(gap_sizes) == 1:
+    # Execute gap evaluations (Sequential or Parallel)
+    if n_jobs == 1 or len(gap_sizes) == 1:
         raw_results = [
             _evaluate_single_gap(
                 segments, k, interpolation_method, metric_name, global_mean, order, chunk_size
@@ -358,10 +348,8 @@ def run_exhaustive_analysis(
             for k in gap_sizes
         ]
     else:
-        # Joblib with 'loky' backend & automatic memory-mapping for NumPy arrays
         raw_results = Parallel(
             n_jobs=effective_workers,
-            backend='loky',
             max_nbytes='1M'
         )(
             delayed(_evaluate_single_gap)(
@@ -370,16 +358,20 @@ def run_exhaustive_analysis(
             for k in gap_sizes
         )
 
-    # Sort results to ensure deterministic gap ordering
+    # Sort results deterministically by gap size
     raw_results_sorted = sorted(raw_results, key=lambda x: x[0])
     results = [r[1] for r in raw_results_sorted]
 
     if verbose:
         for k, final_res, total_pts, el_time in raw_results_sorted:
-            print(f"[Gap {k:3} min] Scenarios: {total_pts:11,} | Result: {final_res:8.2f} | Time: {el_time:.2f}s")
+            print(f"[Gap {k:3} pts] Evaluated: {total_pts:11,} | {metric_name.upper()}: {final_res:8.2f} | Time: {el_time:.2f}s")
 
-    # Strict memory cleanup
     del segments, raw_results, raw_results_sorted
     gc.collect()
 
     return gap_sizes, results
+
+
+# Concise aliases and backwards compatibility
+run_gap_analysis = evaluate_gaps
+run_exhaustive_analysis = evaluate_gaps

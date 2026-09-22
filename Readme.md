@@ -1,24 +1,62 @@
+<div align="center">
+
 # Heliogap
 
-**Heliogap** is a specialized Python library for Space Geophysics and Heliophysics, designed for robust extraction, cleaning, and time-series gap analysis of space weather datasets. It provides built-in support for downloading and analyzing massive datasets from NASA's OMNI database and INPE's EMBRACE MagNet network.
+**High-Performance Python Library for Heliophysics and Space Geophysics Gap Analysis**
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python Version](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](tests/)
+[![Code Style](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+
+---
+
+</div>
+
+**Heliogap** is a specialized, high-performance Python library tailored for Space Geophysics and Heliophysics. It enables automated ingestion, physics-informed data cleaning, and systematic interpolation benchmarking across time-series datasets from interplanetary space and ground-based observatory networks.
+
+Built for multi-million-row datasets, Heliogap provides seamless integration with **NASA OMNI**, **INPE EMBRACE**, and **INTERMAGNET**, paired with a parallelized gap simulation engine designed to evaluate interpolation algorithms across simulated data gaps without memory bottlenecks.
 
 ---
 
 ## Key Features
 
-- **NASA OMNI Integration:** Seamlessly fetch and clean high-resolution (1-min) solar wind and interplanetary magnetic field data via `pyspedas`.
-- **INPE EMBRACE MagNet Integration:** Download and process ground magnetometer station data across Brazil natively.
-- **Exhaustive Gap Engine:** A highly optimized, sequential interpolation engine to simulate and evaluate various gap sizes across historical time-series datasets without memory crashes.
-- **Comprehensive Metrics:** Built-in evaluation functions including WMAPE, MAE, RMSE, R², and MDA (Mean Directional Accuracy).
-- **Standardized Visualization:** Ready-to-use plotter to automatically generate publication-quality metric matrices for multiple physics features.
+- **Automated Multi-Source Data Ingestion:**
+  - **NASA OMNI:** High-resolution (1-minute) solar wind plasma and interplanetary magnetic field (IMF) parameters via CDAWeb and `pyspedas`.
+  - **INPE EMBRACE:** Terrestrial magnetometer telemetry across South America with automatic directory parsing and station discovery.
+  - **INTERMAGNET:** Global geomagnetic observatory network ingestion in IAGA-2002 ASCII format via BGS GIN web services.
+- **Self-Healing Incremental Caching:**
+  - Automatically identifies missing temporal ranges, retrieves only the delta years, sanitizes values, and synchronizes local disk caches.
+- **Physics-Informed Data Cleaning:**
+  - Strips NASA/INTERMAGNET fill codes (e.g., `99999.0`, `88888.0`), clips unphysical values, and applies **boundary trimming** to isolate sensor transitions around gaps.
+- **HPC Gap Evaluation Engine (`evaluate_gaps`):**
+  - GIL-bypassing multi-core execution via `joblib`.
+  - Fast run-length segment extraction (NumPy zero-copy views).
+  - Dynamic chunking governed by available system RAM to prevent Out-Of-Memory (OOM) faults.
+- **Geophysical Metrics Suite:**
+  - WMAPE, MAE, RMSE, R² Score, Mean Directional Accuracy (MDA), and rate of change of magnetic field ($\mathrm{d}B/\mathrm{d}t$).
+- **Standardized Scientific Visualizations:**
+  - Ready-to-publish multi-panel metric grids configured with physical units and logarithmic gap axes.
 
 ---
 
 ## Installation
 
-Heliogap requires Python 3.8+ and standard scientific libraries (`numpy`, `pandas`, `matplotlib`, `pyspedas`, `cdflib`).
+### Prerequisites
 
-Clone the repository and install it locally:
+Heliogap requires **Python 3.9+** and standard scientific libraries:
+
+- `numpy`
+- `pandas`
+- `scipy`
+- `matplotlib`
+- `joblib`
+- `pyspedas`
+- `cdflib`
+- `requests`
+- `urllib3`
+
+### Install from Source
 
 ```bash
 git clone https://github.com/joseantoniodecarvalhoneto/heliogap.git
@@ -26,108 +64,188 @@ cd heliogap
 pip install -e .
 ```
 
+For development and test dependencies:
+
+```bash
+pip install -e ".[dev]"
+```
+
 ---
 
-##  Quick Start
+## Quick Start
 
-Heliogap makes it incredibly easy to start analyzing massive space physics datasets.
-
-### 1. NASA OMNI Analysis (Solar Wind & IMF)
+### 1. NASA OMNI Solar Wind Gap Benchmark
 
 ```python
 import heliogap as hg
 
-# 1. Load historical OMNI data (automatically downloads and caches)
-df = hg.load_omni_data(cache_filepath="omni_dados.pkl")
+# 1. Ingest historical OMNI dataset (automatically downloads and caches)
+df = hg.load_omni_data(cache_filepath="omni_data.pkl", start_year=2020)
 
-# 2. Define features, metrics, and gap sizes to simulate
+# 2. Select variables, metric, and simulated gap dimensions (in minutes)
 features = ['flow_speed', 'proton_density', 'BZ_GSM']
 metric = 'rmse'
-gap_sizes = [1, 5, 15, 30, 60, 120] # in minutes
+gap_sizes = [1, 5, 15, 30, 60, 120]
 
-results_dict = {}
+results = {}
 
-# 3. Run the Exhaustive Engine
+# 3. Run gap interpolation evaluation
 for var in features:
     if var in df.columns and df[var].notna().any():
-        gaps, errors = hg.run_exhaustive_analysis(
+        gaps, errors = hg.evaluate_gaps(
             df=df,
             feature_name=var,
             metric_name=metric,
             gap_sizes=gap_sizes,
-            interpolation_method='linear'
+            interpolation_method='linear',
+            n_jobs=-1  # Multi-core CPU parallelization
         )
-        results_dict[var] = errors
+        results[var] = errors
 
-# 4. Generate the Visualization Matrix
+# 4. Generate publication-ready figure
 hg.plot_metric_matrix(
-    gap_sizes=gap_sizes, 
-    results_dict=results_dict, 
+    gap_sizes=gap_sizes,
+    results_dict=results,
     metric_name=metric,
-    save_path="omni_analysis.png"
+    save_path="omni_benchmark.png"
 )
 ```
 
-### 2. INPE EMBRACE Analysis (Ground Magnetometers)
+---
+
+### 2. INPE EMBRACE Ground Magnetometer Analysis
 
 ```python
 import heliogap as hg
 
-# 1. Download data for a specific station (e.g., Vassouras - VSS)
+# Ingest Vassouras station (VSS) magnetometer telemetry
 df = hg.download_embrace_data(station='VSS', start_year=2024)
 
-# 2. Run analysis on the Horizontal Magnetic Field (H)
-gap_sizes, errors = hg.run_exhaustive_analysis(
+# Evaluate interpolation on Horizontal Field component (H)
+gap_sizes, mae_errors = hg.evaluate_gaps(
     df=df,
     feature_name='H',
     metric_name='mae',
     gap_sizes=[1, 2, 5, 10, 15, 30, 60]
 )
 
-# 3. Plot
+# Plot results
 hg.plot_metric_matrix(
     gap_sizes=gap_sizes,
-    results_dict={'H': errors},
+    results_dict={'H': mae_errors},
     metric_name='mae',
-    save_path="embrace_VSS_mae.png"
+    save_path="embrace_vss_mae.png"
 )
 ```
 
 ---
 
-## Available Metrics
+### 3. INTERMAGNET Observatory Ingestion (IAGA-2002)
 
-The exhaustive engine supports the following metrics to evaluate the performance of interpolations across gaps:
+```python
+import heliogap as hg
 
-- **`wmape`**: Weighted Mean Absolute Percentage Error
-- **`mae`**: Mean Absolute Error (Great for massive baselines like Earth's magnetic field)
-- **`rmse`**: Root Mean Squared Error (Penalizes larger deviations)
-- **`r2`**: Coefficient of Determination (R² Score)
-- **`mda`**: Mean Directional Accuracy (Percentage of correctly predicted trend directions)
+# Download 1-minute cadence geomagnetic data for Vassouras (VSS)
+df = hg.download_intermagnet_vss(start_year=2023)
+
+# Evaluate cubic spline interpolation on North component (X)
+gaps, r2_scores = hg.evaluate_gaps(
+    df=df,
+    feature_name='X',
+    metric_name='r2',
+    gap_sizes=[1, 5, 15, 30, 60],
+    interpolation_method='cubic'
+)
+```
+
+---
+
+### 4. Computing Magnetic Field Rate of Change ($\mathrm{d}B/\mathrm{d}t$)
+
+In space weather and geomagnetism, $\mathrm{d}B/\mathrm{d}t$ is critical for assessing Geomagnetically Induced Currents (GICs):
+
+```python
+import heliogap as hg
+
+# Compute time derivative of geomagnetic horizontal component (H)
+# dt=60.0s for 1-minute cadence data
+d_h_dt = hg.calculate_dbt(df['H'], dt=60.0)
+```
+
+---
+
+## Supported Metrics
+
+| Metric | Function / Alias | Description | Ideal For |
+| :--- | :--- | :--- | :--- |
+| **WMAPE** | `calculate_wmape`, `wmape` | Weighted Mean Absolute Percentage Error | Relative error comparison across features with different scales. |
+| **MAE** | `calculate_mae`, `mae` | Mean Absolute Error | Robust evaluation with large baseline fields (e.g., Earth's 24,000 nT field). |
+| **RMSE** | `calculate_rmse`, `rmse` | Root Mean Squared Error | Penalizes large deviations and extreme outliers during geomagnetic storms. |
+| **R²** | `calculate_r2`, `r2` | Coefficient of Determination | Quantifies variance explained relative to dataset baseline mean. |
+| **MDA** | `calculate_mda`, `mda` | Mean Directional Accuracy (%) | Evaluates whether interpolation preserves the sign of physical derivatives. |
+| **$\mathrm{d}B/\mathrm{d}t$** | `calculate_dbt`, `dbt` | Time Derivative of Magnetic Field | GIC modeling and rapid geomagnetic impulse detection. |
 
 ---
 
 ## Supported Interpolation Methods
 
-The engine is highly flexible and accepts multiple interpolation techniques via the `interpolation_method` parameter in `run_exhaustive_analysis()`.
+Heliogap supports pure NumPy and SciPy 1D interpolation algorithms via the `interpolation_method` parameter:
 
-- **Basic Methods:** `'linear'` (default), `'nearest'`, `'zero'`
-- **Advanced Methods (via pandas):** `'polynomial'`, `'spline'`, `'cubic'`, `'barycentric'`, `'krogh'`, `'pchip'`, `'akima'`, etc. (Note: Some of these require the `order` parameter, e.g., `order=2`).
-
----
-
-## Architecture / Modules
-
-- `heliogap.engine`: Core gap simulation logic (`run_exhaustive_analysis`).
-- `heliogap.omni`: NASA OMNI data loader and cleaner.
-- `heliogap.embrace`: INPE EMBRACE MagNet network scraper and cleaner.
-- `heliogap.metrics`: Mathematical definitions of the evaluation metrics.
-- `heliogap.plotter`: Automated multi-subplot generator for gap metric visualization.
+- **Standard Methods:** `'linear'`, `'nearest'`, `'zero'`
+- **Advanced Methods:** `'cubic'`, `'cubicspline'`, `'pchip'`, `'akima'`, `'slinear'`, `'quadratic'`, `'polynomial'` (with `order=N`).
 
 ---
 
-## License & Authors
+## Architecture & Module Structure
 
-**Author:** José Antonio de Carvalho Neto  
-**Contact:** joseadecn@gmail.com  
-**Homepage:** [GitHub - heliogap](https://github.com/joseantoniodecarvalhoneto/heliogap)
+```text
+heliogap/
+├── __init__.py         # Package root exposing public API and version
+├── engine.py           # Core evaluation engine (evaluate_gaps, downcast, segment extraction)
+├── metrics.py          # Mathematical loss functions and dB/dt computation
+├── omni.py             # NASA OMNI CDAWeb downloader and physics cleaner
+├── embrace.py          # INPE EMBRACE MagNet ingestion and station scraper
+├── intermagnet.py      # INTERMAGNET BGS GIN downloader and IAGA-2002 parser
+└── plotter.py          # Multi-panel publication plotter
+```
+
+---
+
+## Running Tests
+
+Unit tests are written using `pytest`:
+
+```bash
+pytest
+```
+
+---
+
+## License
+
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+
+```text
+MIT License
+Copyright (c) 2026 José Antonio de Carvalho Neto
+```
+
+---
+
+## Author & Citation
+
+- **Author:** José Antonio de Carvalho Neto
+- **Affiliation:** Instituto Nacional de Pesquisas Espaciais (INPE)
+- **Email:** [joseadecn@gmail.com](mailto:joseadecn@gmail.com)
+- **Repository:** [https://github.com/joseantoniodecarvalhoneto/heliogap](https://github.com/joseantoniodecarvalhoneto/heliogap)
+
+If you use Heliogap in your research, please cite:
+
+```bibtex
+@software{heliogap2026,
+  author = {de Carvalho Neto, José Antonio},
+  title = {Heliogap: High-Performance Python Library for Heliophysics and Space Geophysics Gap Analysis},
+  year = {2026},
+  url = {https://github.com/joseantoniodecarvalhoneto/heliogap}
+}
+```
